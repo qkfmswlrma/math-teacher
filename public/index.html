@@ -9,6 +9,8 @@
 <link rel="stylesheet" href="/style.css">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" onload="rerenderAll()"></script>
 <style>
+  .actions { display: flex; gap: 8px; }
+  .actions a { text-decoration: none; }
   .msg { margin: 0 0 28px; }
   .msg.user { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
   .msg.user .bubble {
@@ -98,7 +100,10 @@
 <header>
   <div class="bar">
     <h1>수학 선생님</h1>
-    <button id="reset" class="ghost" type="button" hidden>새 질문</button>
+    <div class="actions">
+      <a id="history" class="ghost" href="/history" hidden>지난 질문</a>
+      <button id="reset" class="ghost" type="button" hidden>새 질문</button>
+    </div>
   </div>
 </header>
 
@@ -172,6 +177,7 @@ async function enter() {
   document.getElementById("gate").hidden = true;
   log.hidden = false;
   document.getElementById("footer").hidden = false;
+  document.getElementById("history").hidden = false;
   restore();
   input.focus();
 }
@@ -180,6 +186,7 @@ function showGate(message) {
   log.hidden = true;
   document.getElementById("footer").hidden = true;
   resetBtn.hidden = true;
+  document.getElementById("history").hidden = true;
   document.getElementById("gate").hidden = false;
   const e = document.getElementById("gate-error");
   e.textContent = message || "";

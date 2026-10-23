@@ -111,6 +111,8 @@ function showRows(rows) {
 async function open() {
   try {
     const { rows, summary } = await load();
+    // 학생 코드로도 기록 API 는 열리지만, 이 페이지는 관리자만 쓴다
+    if (!summary) throw new Error("bad_code");
     document.getElementById("gate").hidden = true;
     document.getElementById("page").hidden = false;
     const s = summary;
