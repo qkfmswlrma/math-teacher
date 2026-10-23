@@ -48,6 +48,11 @@ export async function onRequestPost(context) {
         has_image: last.filter((b) => b.type === "image").length,
       })
     : null;
+  // 이번에 보낸 사진을 저장해 두면, 대화를 다시 열었을 때 사진도 보이고 이어서 물을 때 모델도 다시 본다
+  if (rowId) {
+    const images = last.filter((b) => b.type === "image").map((b) => b.source);
+    if (images.length) await table.insertPhotos(rowId, images).catch(() => {});
+  }
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const encoder = new TextEncoder();

@@ -123,18 +123,98 @@
     cursor: zoom-out;
   }
   .lightbox img { max-width: 100vw; max-height: 100dvh; object-fit: contain; display: block; }
+  .left { display: flex; align-items: center; gap: 4px; }
+  .menu-btn {
+    width: 36px;
+    height: 36px;
+    margin-left: -8px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--fg);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+  }
+  .backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(0, 0, 0, 0.35); }
+  .drawer {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 21;
+    width: min(320px, 86vw);
+    background: var(--card);
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    padding: calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));
+  }
+  .drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 0 4px 10px; }
+  .drawer-head strong { font-size: 17px; }
+  .new-chat {
+    font: inherit;
+    font-size: 15px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--bg);
+    color: var(--fg);
+    text-align: left;
+    cursor: pointer;
+    margin-bottom: 10px;
+  }
+  #conv-list { flex: 1; overflow-y: auto; margin: 0 -4px; }
+  .conv {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    border: none;
+    background: transparent;
+    color: var(--fg);
+    padding: 10px 8px;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  .conv:hover, .conv.current { background: var(--user-bg); }
+  .conv-title {
+    font-size: 15px;
+    line-height: 1.45;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+  .conv-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .drawer-note { color: var(--muted); font-size: 14px; padding: 8px; }
 </style>
 </head>
 <body>
 <header>
   <div class="bar">
-    <h1>수학 선생님</h1>
+    <div class="left">
+      <button id="menu" class="menu-btn" type="button" aria-label="대화 목록" hidden>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <h1>수학 선생님</h1>
+    </div>
     <div class="actions">
-      <a id="history" class="ghost" href="/history" hidden>지난 질문</a>
-      <button id="reset" class="ghost" type="button" hidden>새 질문</button>
+      <button id="reset" class="ghost" type="button" hidden>새 대화</button>
     </div>
   </div>
 </header>
+
+<div id="backdrop" class="backdrop" hidden></div>
+<aside id="drawer" class="drawer" aria-label="대화 목록" hidden>
+  <div class="drawer-head">
+    <strong>대화</strong>
+    <button id="drawer-close" class="ghost" type="button">닫기</button>
+  </div>
+  <button id="drawer-new" class="new-chat" type="button">+ 새 대화</button>
+  <nav id="conv-list"></nav>
+</aside>
 
 <section id="gate" class="gate" hidden>
   <form id="gate-form">
@@ -183,6 +263,10 @@ const attach = document.getElementById("attach");
 const errorLine = document.getElementById("error");
 const resetBtn = document.getElementById("reset");
 const lightbox = document.getElementById("lightbox");
+const menuBtn = document.getElementById("menu");
+const drawer = document.getElementById("drawer");
+const backdrop = document.getElementById("backdrop");
+const convList = document.getElementById("conv-list");
 const coarse = matchMedia("(pointer: coarse)").matches;
 
 let code = store.get(CODE_KEY);
@@ -208,16 +292,18 @@ async function enter() {
   document.getElementById("gate").hidden = true;
   log.hidden = false;
   document.getElementById("footer").hidden = false;
-  document.getElementById("history").hidden = false;
+  menuBtn.hidden = false;
   restore();
   input.focus();
+  syncFromServer();
 }
 
 function showGate(message) {
   log.hidden = true;
   document.getElementById("footer").hidden = true;
   resetBtn.hidden = true;
-  document.getElementById("history").hidden = true;
+  menuBtn.hidden = true;
+  closeDrawer();
   document.getElementById("gate").hidden = false;
   const e = document.getElementById("gate-error");
   e.textContent = message || "";
@@ -242,16 +328,20 @@ function save() {
   }));
 }
 
-// 지난 질문 화면에서 "이어서 묻기"를 누르면 그 대화가 CHAT_KEY 에 담겨 넘어온다.
+// 이 기기에 남겨 둔 지금 대화(글만)를 먼저 그리고, 사진까지 든 원본은 서버에서 받아 바꿔 그린다.
 function restore() {
   let saved = null;
   try { saved = JSON.parse(store.get(CHAT_KEY) || "null"); } catch {}
   conversation = saved?.conversation || newId();
-  turns = Array.isArray(saved?.turns) ? saved.turns : [];
+  showTurns(Array.isArray(saved?.turns) ? saved.turns : []);
+}
+
+function showTurns(list) {
+  turns = list;
   log.innerHTML = "";
   for (const t of turns) {
     if (t.role === "user") {
-      addUser(t.text, [], imageCount(t));
+      addUser(t.text, (t.images || []).map((p) => p.dataUrl), imageCount(t));
     } else {
       const ai = addAnswer();
       ai.set(t.text, true);
@@ -260,6 +350,127 @@ function restore() {
   }
   resetBtn.hidden = !turns.length;
   scrollDown(true);
+}
+
+async function syncFromServer() {
+  if (!turns.length) return;
+  const id = conversation;
+  const count = turns.length;
+  const rows = await fetchConversation(id).catch(() => null);
+  // 그사이 다른 대화로 옮겼거나 새로 물었으면 건드리지 않는다
+  if (!rows?.length || busy || id !== conversation || turns.length !== count) return;
+  showTurns(rowsToTurns(rows));
+}
+
+async function fetchConversation(id) {
+  const res = await fetch(`/api/conversations?id=${encodeURIComponent(id)}`, { headers: { "x-access-code": code || "" } });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `서버 오류(${res.status})예요.`);
+  return data.rows;
+}
+
+// 서버에 남은 질문 줄들을 화면의 주고받은 말로 바꾼다
+function rowsToTurns(rows) {
+  const list = [];
+  for (const r of rows) {
+    list.push({
+      role: "user",
+      text: r.question || "",
+      images: (r.photos || []).map((p) => ({ type: p.type, data: p.data, dataUrl: `data:${p.type};base64,${p.data}` })),
+      hadImage: r.has_image || 0,
+    });
+    list.push({ role: "assistant", text: r.answer, meta: r.status === "stopped" ? "중간에 멈춘 답이에요." : r.model ? savedMeta(r) : "" });
+  }
+  return list;
+}
+
+function savedMeta(r) {
+  const n = (x) => (x || 0).toLocaleString("ko-KR");
+  return `${r.model} · 입력 ${n(r.input_tokens)} · 캐시 읽기 ${n(r.cache_read_tokens)} · 캐시 쓰기 ${n(r.cache_write_tokens)} · 출력 ${n(r.output_tokens)} 토큰 · 약 $${(Number(r.cost_usd) || 0).toFixed(3)}`;
+}
+
+// ---------- 대화 목록 ----------
+menuBtn.addEventListener("click", openDrawer);
+backdrop.addEventListener("click", closeDrawer);
+document.getElementById("drawer-close").addEventListener("click", closeDrawer);
+document.getElementById("drawer-new").addEventListener("click", newConversation);
+
+async function openDrawer() {
+  drawer.hidden = false;
+  backdrop.hidden = false;
+  convList.innerHTML = `<div class="drawer-note">불러오는 중…</div>`;
+  try {
+    const res = await fetch("/api/conversations", { headers: { "x-access-code": code || "" } });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `서버 오류(${res.status})예요.`);
+    renderList(data.conversations);
+  } catch (err) {
+    convList.innerHTML = "";
+    const note = document.createElement("div");
+    note.className = "drawer-note";
+    note.textContent = err.message;
+    convList.append(note);
+  }
+}
+
+function closeDrawer() {
+  drawer.hidden = true;
+  backdrop.hidden = true;
+}
+
+function renderList(list) {
+  convList.innerHTML = "";
+  if (!list.length) {
+    convList.innerHTML = `<div class="drawer-note">아직 대화가 없어요.</div>`;
+    return;
+  }
+  for (const c of list) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "conv" + (c.conversation === conversation ? " current" : "");
+    const title = document.createElement("div");
+    title.className = "conv-title";
+    title.textContent = c.title || (c.has_image ? "사진으로 보낸 문제" : "제목 없는 대화");
+    const sub = document.createElement("div");
+    sub.className = "conv-sub";
+    sub.textContent = `${dayLabel(c.updated)} · 질문 ${c.n}개 · 약 $${(Number(c.cost) || 0).toFixed(2)}`;
+    b.append(title, sub);
+    b.addEventListener("click", () => openConversation(c.conversation));
+    convList.append(b);
+  }
+}
+
+function dayLabel(utc) {
+  return new Date(utc.replace(" ", "T") + "Z").toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul", month: "long", day: "numeric" });
+}
+
+async function openConversation(id) {
+  closeDrawer();
+  if (busy) {
+    showError("답을 받는 중이에요. 멈추거나 끝난 뒤에 옮겨 주세요.");
+    return;
+  }
+  showError("");
+  log.innerHTML = `<div class="drawer-note">대화를 불러오는 중…</div>`;
+  try {
+    const rows = await fetchConversation(id);
+    conversation = id;
+    showTurns(rowsToTurns(rows));
+    save();
+  } catch (err) {
+    restore();
+    showError(err.message);
+  }
+}
+
+function newConversation() {
+  if (busy) return;
+  conversation = newId();
+  store.remove(CHAT_KEY);
+  showTurns([]);
+  showError("");
+  closeDrawer();
+  input.focus();
 }
 
 function newId() {
@@ -281,16 +492,7 @@ function toMessages() {
   });
 }
 
-resetBtn.addEventListener("click", () => {
-  if (busy) return;
-  turns = [];
-  conversation = newId();
-  store.remove(CHAT_KEY);
-  log.innerHTML = "";
-  resetBtn.hidden = true;
-  showError("");
-  input.focus();
-});
+resetBtn.addEventListener("click", newConversation);
 
 // ---------- 입력 ----------
 function refreshSend() {
@@ -374,7 +576,11 @@ function openLightbox(src) {
   lightbox.hidden = false;
 }
 lightbox.addEventListener("click", () => { lightbox.hidden = true; });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") lightbox.hidden = true; });
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  lightbox.hidden = true;
+  closeDrawer();
+});
 
 // ---------- 보내기·멈추기 ----------
 form.addEventListener("submit", async (e) => {
