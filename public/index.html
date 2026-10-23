@@ -33,13 +33,16 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
-  .msg.user img {
-    max-width: min(320px, 85%);
+  .photos { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 85%; }
+  .photos img {
+    max-width: min(320px, 100%);
     max-height: 320px;
     border-radius: 14px;
     border: 1px solid var(--line);
     display: block;
+    cursor: zoom-in;
   }
+  .photos.many img { max-width: 150px; max-height: 150px; object-fit: cover; }
   .status { color: var(--muted); font-size: 15px; display: flex; align-items: center; gap: 8px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
   @keyframes pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
@@ -51,9 +54,10 @@
     padding: 8px 0 calc(12px + env(safe-area-inset-bottom));
   }
   #composer { max-width: 720px; margin: 0 auto; padding: 0 16px; }
-  .attach { display: inline-flex; position: relative; margin: 0 0 8px; }
-  .attach img { height: 72px; border-radius: 10px; border: 1px solid var(--line); display: block; }
-  .attach button {
+  .attach { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 10px; padding-top: 8px; }
+  .thumb { position: relative; }
+  .thumb img { height: 72px; border-radius: 10px; border: 1px solid var(--line); display: block; cursor: zoom-in; }
+  .thumb button {
     position: absolute;
     top: -8px;
     right: -8px;
@@ -88,8 +92,12 @@
     border: none;
   }
   .icon-btn { background: transparent; color: var(--muted); }
+  .icon-btn.off { opacity: 0.35; pointer-events: none; }
   .send { background: var(--accent); color: var(--accent-fg); }
   .send:disabled { opacity: 0.35; cursor: default; }
+  .send.stop { background: var(--fg); color: var(--bg); }
+  .send .icon-stop, .send.stop .icon-send { display: none; }
+  .send.stop .icon-stop { display: block; }
   textarea {
     flex: 1;
     border: none;
@@ -104,6 +112,17 @@
     max-height: 180px;
   }
   textarea::placeholder { color: var(--muted); }
+  .lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    background: rgba(0, 0, 0, 0.9);
+    display: grid;
+    place-items: center;
+    overflow: auto;
+    cursor: zoom-out;
+  }
+  .lightbox img { max-width: 100vw; max-height: 100dvh; object-fit: contain; display: block; }
 </style>
 </head>
 <body>
@@ -131,46 +150,49 @@
 <footer id="footer" hidden>
   <form id="composer">
     <div id="error" class="error-line" hidden></div>
-    <div id="attach" class="attach" hidden>
-      <img id="attach-img" alt="올린 사진">
-      <button id="attach-remove" type="button" aria-label="사진 빼기">×</button>
-    </div>
+    <div id="attach" class="attach" hidden></div>
     <div class="row">
-      <label class="icon-btn" for="photo" title="사진 올리기">
+      <label id="photo-btn" class="icon-btn" for="photo" title="사진 올리기">
         <span class="sr">사진 올리기</span>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
       </label>
-      <input id="photo" class="sr" type="file" accept="image/*">
+      <input id="photo" class="sr" type="file" accept="image/*" multiple>
       <textarea id="input" rows="1" placeholder="문제나 사진을 보내 주세요"></textarea>
       <button id="send" class="send" type="submit" aria-label="보내기" disabled>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        <svg class="icon-send" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        <svg class="icon-stop" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect width="14" height="14" rx="2.5" fill="currentColor"/></svg>
       </button>
     </div>
   </form>
 </footer>
 
+<div id="lightbox" class="lightbox" hidden><img alt="크게 본 사진"></div>
+
 <script src="/render.js"></script>
 <script>
 const CODE_KEY = "mt-code";
 const CHAT_KEY = "mt-chat";
+const MAX_PHOTOS = 4;
 const log = document.getElementById("log");
 const form = document.getElementById("composer");
 const input = document.getElementById("input");
 const sendBtn = document.getElementById("send");
 const photoInput = document.getElementById("photo");
+const photoBtn = document.getElementById("photo-btn");
 const attach = document.getElementById("attach");
-const attachImg = document.getElementById("attach-img");
 const errorLine = document.getElementById("error");
 const resetBtn = document.getElementById("reset");
+const lightbox = document.getElementById("lightbox");
 const coarse = matchMedia("(pointer: coarse)").matches;
 
 let code = store.get(CODE_KEY);
 let who = null;
 let conversation = null;
-// 한 대화의 주고받은 말. 사진은 이 창에서만 들고 있고, 저장할 때는 "사진이 있었다"만 남긴다.
+// 한 대화의 주고받은 말. 사진은 이 창에서만 들고 있고, 저장할 때는 "사진이 몇 장 있었다"만 남긴다.
 let turns = [];
-let photo = null;
+let photos = [];
 let busy = false;
+let controller = null;
 
 // ---------- 입장 ----------
 async function enter() {
@@ -211,13 +233,16 @@ document.getElementById("gate-form").addEventListener("submit", (e) => {
 });
 
 // ---------- 대화 저장·복원 ----------
+const imageCount = (t) => t.images?.length || Number(t.hadImage) || 0;
+
 function save() {
   store.set(CHAT_KEY, JSON.stringify({
     conversation,
-    turns: turns.map((t) => ({ role: t.role, text: t.text, hadImage: !!(t.image || t.hadImage), meta: t.meta })),
+    turns: turns.map((t) => ({ role: t.role, text: t.text, hadImage: imageCount(t), meta: t.meta })),
   }));
 }
 
+// 지난 질문 화면에서 "이어서 묻기"를 누르면 그 대화가 CHAT_KEY 에 담겨 넘어온다.
 function restore() {
   let saved = null;
   try { saved = JSON.parse(store.get(CHAT_KEY) || "null"); } catch {}
@@ -226,7 +251,7 @@ function restore() {
   log.innerHTML = "";
   for (const t of turns) {
     if (t.role === "user") {
-      addUser(t.text, null, t.hadImage);
+      addUser(t.text, [], imageCount(t));
     } else {
       const ai = addAnswer();
       ai.set(t.text, true);
@@ -246,8 +271,11 @@ function toMessages() {
   return turns.map((t) => {
     if (t.role === "assistant") return { role: "assistant", content: t.text };
     const content = [];
-    if (t.image) content.push({ type: "image", source: { type: "base64", media_type: t.image.type, data: t.image.data } });
-    else if (t.hadImage) content.push({ type: "text", text: "(앞에서 사진으로 보낸 문제)" });
+    if (t.images?.length) {
+      for (const p of t.images) content.push({ type: "image", source: { type: "base64", media_type: p.type, data: p.data } });
+    } else if (imageCount(t)) {
+      content.push({ type: "text", text: "(앞에서 사진으로 보낸 문제)" });
+    }
     if (t.text) content.push({ type: "text", text: t.text });
     return { role: "user", content };
   });
@@ -266,7 +294,10 @@ resetBtn.addEventListener("click", () => {
 
 // ---------- 입력 ----------
 function refreshSend() {
-  sendBtn.disabled = busy || (!input.value.trim() && !photo);
+  sendBtn.classList.toggle("stop", busy);
+  sendBtn.setAttribute("aria-label", busy ? "답 멈추기" : "보내기");
+  sendBtn.disabled = !busy && !input.value.trim() && !photos.length;
+  photoBtn.classList.toggle("off", photos.length >= MAX_PHOTOS);
 }
 function autosize() {
   input.style.height = "auto";
@@ -276,26 +307,44 @@ input.addEventListener("input", () => { autosize(); refreshSend(); });
 input.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing && !coarse) {
     e.preventDefault();
-    form.requestSubmit();
+    if (!busy) form.requestSubmit();
   }
 });
 
 photoInput.addEventListener("change", async () => {
-  const file = photoInput.files[0];
+  const files = [...photoInput.files];
   photoInput.value = "";
-  if (!file) return;
-  try {
-    setPhoto(await shrink(file));
-  } catch {
-    showError("사진을 읽지 못했어요. 다른 사진으로 해 주세요.");
+  const room = MAX_PHOTOS - photos.length;
+  if (files.length > room) showError(`사진은 한 번에 ${MAX_PHOTOS}장까지 보낼 수 있어요.`);
+  for (const file of files.slice(0, room)) {
+    try {
+      photos.push(await shrink(file));
+    } catch {
+      showError("사진을 읽지 못했어요. 다른 사진으로 해 주세요.");
+    }
   }
+  setPhotos(photos);
 });
-document.getElementById("attach-remove").addEventListener("click", () => setPhoto(null));
 
-function setPhoto(p) {
-  photo = p;
-  attach.hidden = !p;
-  if (p) attachImg.src = p.dataUrl;
+function setPhotos(list) {
+  photos = list;
+  attach.innerHTML = "";
+  photos.forEach((p, i) => {
+    const box = document.createElement("div");
+    box.className = "thumb";
+    const im = document.createElement("img");
+    im.src = p.dataUrl;
+    im.alt = `올린 사진 ${i + 1}`;
+    im.addEventListener("click", () => openLightbox(p.dataUrl));
+    const x = document.createElement("button");
+    x.type = "button";
+    x.textContent = "×";
+    x.setAttribute("aria-label", "사진 빼기");
+    x.addEventListener("click", () => setPhotos(photos.filter((_, j) => j !== i)));
+    box.append(im, x);
+    attach.append(box);
+  });
+  attach.hidden = !photos.length;
   refreshSend();
 }
 
@@ -319,21 +368,35 @@ function showError(text) {
   errorLine.hidden = !text;
 }
 
-// ---------- 보내기 ----------
+// ---------- 사진 크게 보기 ----------
+function openLightbox(src) {
+  lightbox.querySelector("img").src = src;
+  lightbox.hidden = false;
+}
+lightbox.addEventListener("click", () => { lightbox.hidden = true; });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") lightbox.hidden = true; });
+
+// ---------- 보내기·멈추기 ----------
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
+  // 답을 받는 중에는 같은 버튼이 "멈추기"다
+  if (busy) {
+    controller?.abort();
+    return;
+  }
   const text = input.value.trim();
-  if (busy || (!text && !photo)) return;
+  if (!text && !photos.length) return;
 
-  const turn = { role: "user", text, image: photo };
+  const turn = { role: "user", text, images: photos };
   turns.push(turn);
-  const userEl = addUser(text, photo?.dataUrl, false);
+  const userEl = addUser(text, photos.map((p) => p.dataUrl), 0);
   const ai = addAnswer();
   input.value = "";
   autosize();
-  setPhoto(null);
+  setPhotos([]);
   showError("");
   busy = true;
+  controller = new AbortController();
   refreshSend();
   resetBtn.hidden = false;
   scrollDown(true);
@@ -351,6 +414,7 @@ form.addEventListener("submit", async (e) => {
       method: "POST",
       headers: { "content-type": "application/json", "x-access-code": code },
       body: JSON.stringify({ conversation, messages: toMessages() }),
+      signal: controller.signal,
     });
     if (res.status === 401) throw Object.assign(new Error("코드가 바뀌었어요. 다시 넣어 주세요."), { gate: true });
     if (!res.ok || !res.body) {
@@ -386,40 +450,57 @@ form.addEventListener("submit", async (e) => {
     save();
     if (note) ai.note(note);
   } catch (err) {
-    turns.pop();
-    userEl.remove();
-    ai.el.remove();
-    input.value = turn.text;
-    autosize();
-    setPhoto(turn.image);
-    if (!turns.length) resetBtn.hidden = true;
-    if (err.gate) {
-      store.remove(CODE_KEY);
-      code = null;
-      showGate(err.message);
+    const stopped = err.name === "AbortError";
+    if (stopped && answer) {
+      // 멈춘 데까지의 답은 남겨 두고, 그대로 이어서 물을 수 있게 한다
+      ai.set(answer, true);
+      meta = "중간에 멈춘 답이에요.";
+      ai.meta.textContent = meta;
+      turns.push({ role: "assistant", text: answer, meta });
+      save();
     } else {
-      showError(err.message || "연결이 끊겼어요. 다시 보내 주세요.");
+      turns.pop();
+      userEl.remove();
+      ai.el.remove();
+      input.value = turn.text;
+      autosize();
+      setPhotos(turn.images);
+      if (!turns.length) resetBtn.hidden = true;
+      if (err.gate) {
+        store.remove(CODE_KEY);
+        code = null;
+        showGate(err.message);
+      } else if (!stopped) {
+        showError(err.message || "연결이 끊겼어요. 다시 보내 주세요.");
+      }
     }
   } finally {
     clearInterval(tick);
     ai.status.hidden = true;
     busy = false;
+    controller = null;
     refreshSend();
   }
 });
 
-function addUser(text, img, hadImage) {
+function addUser(text, imgs, hadImage) {
   const el = document.createElement("div");
   el.className = "msg user";
-  if (img) {
-    const im = document.createElement("img");
-    im.src = img;
-    im.alt = "보낸 문제 사진";
-    el.append(im);
+  if (imgs.length) {
+    const box = document.createElement("div");
+    box.className = imgs.length > 1 ? "photos many" : "photos";
+    for (const src of imgs) {
+      const im = document.createElement("img");
+      im.src = src;
+      im.alt = "보낸 문제 사진";
+      im.addEventListener("click", () => openLightbox(src));
+      box.append(im);
+    }
+    el.append(box);
   } else if (hadImage) {
     const chip = document.createElement("span");
     chip.className = "chip";
-    chip.textContent = "사진";
+    chip.textContent = hadImage > 1 ? `사진 ${hadImage}장` : "사진";
     el.append(chip);
   }
   if (text) {
@@ -448,6 +529,8 @@ function addAnswer() {
     set(text, now) {
       latest = text;
       if (now) {
+        clearTimeout(pending);
+        pending = null;
         ai.status.hidden = true;
         paint(answer, text);
         return;

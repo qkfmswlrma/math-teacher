@@ -27,6 +27,7 @@
   .item details summary { cursor: pointer; color: var(--accent); font-size: 14px; margin-bottom: 8px; }
   .item .answer { font-size: 16px; }
   .empty { color: var(--muted); font-size: 15px; }
+  .continue { margin-top: 10px; font-size: 13px; padding: 5px 12px; }
   .more { display: block; margin: 20px auto; }
 </style>
 </head>
@@ -84,7 +85,10 @@ function showRows(rows) {
     el.className = "item";
     const head = document.createElement("div");
     head.className = "item-head";
-    head.innerHTML = `<span>${timeLabel(when)}</span>` + (r.has_image ? `<span class="chip">사진</span>` : "");
+    head.innerHTML =
+      `<span>${timeLabel(when)}</span>` +
+      (r.has_image ? `<span class="chip">사진${r.has_image > 1 ? ` ${r.has_image}장` : ""}</span>` : "") +
+      (r.status === "stopped" ? `<span>중간에 멈춘 답</span>` : "");
     el.append(head);
 
     const q = document.createElement("div");
@@ -103,15 +107,52 @@ function showRows(rows) {
     if (r.model) {
       const m = document.createElement("div");
       m.className = "meta";
-      const n = (x) => (x || 0).toLocaleString("ko-KR");
-      m.textContent = `${r.model} · 입력 ${n(r.input_tokens)} · 캐시 읽기 ${n(r.cache_read_tokens)} · 캐시 쓰기 ${n(r.cache_write_tokens)} · 출력 ${n(r.output_tokens)} 토큰 · 약 $${(Number(r.cost_usd) || 0).toFixed(3)}`;
+      m.textContent = metaLine(r);
       el.append(m);
     }
+
+    const go = document.createElement("button");
+    go.type = "button";
+    go.className = "ghost continue";
+    go.textContent = "이어서 묻기";
+    go.addEventListener("click", () => continueConversation(r.conversation, go));
+    el.append(go);
 
     list.append(el);
     oldest = r.id;
   }
   more.hidden = rows.length < 30;
+}
+
+function metaLine(r) {
+  const n = (x) => (x || 0).toLocaleString("ko-KR");
+  return `${r.model} · 입력 ${n(r.input_tokens)} · 캐시 읽기 ${n(r.cache_read_tokens)} · 캐시 쓰기 ${n(r.cache_write_tokens)} · 출력 ${n(r.output_tokens)} 토큰 · 약 $${(Number(r.cost_usd) || 0).toFixed(3)}`;
+}
+
+// 그 대화를 처음부터 불러와 질문 화면에 넘기고, 거기서 이어서 묻는다.
+async function continueConversation(id, button) {
+  button.disabled = true;
+  try {
+    const res = await fetch(`/api/records?conversation=${encodeURIComponent(id)}`, { headers: { "x-access-code": code || "" } });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `서버 오류(${res.status})예요.`);
+    const turns = [];
+    for (const r of data.rows) {
+      turns.push({ role: "user", text: r.question || "", hadImage: r.has_image || 0 });
+      turns.push({
+        role: "assistant",
+        text: r.answer,
+        meta: r.status === "stopped" ? "중간에 멈춘 답이에요." : r.model ? metaLine(r) : "",
+      });
+    }
+    if (!turns.length) throw new Error("이 대화를 불러오지 못했어요.");
+    store.set("mt-chat", JSON.stringify({ conversation: id, turns }));
+    location.href = "/";
+  } catch (err) {
+    errorLine.textContent = err.message;
+    errorLine.hidden = false;
+    button.disabled = false;
+  }
 }
 
 more.addEventListener("click", async () => {

@@ -13,6 +13,11 @@ export async function onRequestGet({ request, env }) {
   const before = Number(url.searchParams.get("before")) || null;
 
   if (who === "student") {
+    const conversation = url.searchParams.get("conversation");
+    if (conversation) {
+      if (!/^[\w-]{1,64}$/.test(conversation)) return json({ error: "대화 번호가 잘못됐어요." }, 400);
+      return json({ rows: await table.conversationForStudent(conversation) });
+    }
     return json({ rows: await table.listForStudent({ before, limit: 30 }) });
   }
 
@@ -28,7 +33,7 @@ export async function onRequestGet({ request, env }) {
       todayStudent: recent.filter((r) => r.day === today && r.who === "student" && pick(r)).length,
       todayCost: sum(recent.filter((r) => r.day === today)),
       monthCost: sum(recent),
-      limit: Number(env.DAILY_LIMIT || 30),
+      limit: Number(env.DAILY_LIMIT || 0),
     };
   }
   return json({ rows, summary });

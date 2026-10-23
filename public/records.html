@@ -52,7 +52,7 @@ const more = document.getElementById("more");
 let code = store.get(KEY);
 let oldest = null;
 
-const STATUS = { done: "", pending: "답 쓰는 중", cut: "중간에 끊김", refused: "답 거절", error: "오류" };
+const STATUS = { done: "", pending: "답 쓰는 중", cut: "중간에 끊김", stopped: "학생이 멈춤", refused: "답 거절", error: "오류" };
 
 function kst(utc) {
   return new Date(utc.replace(" ", "T") + "Z").toLocaleString("ko-KR", {
@@ -78,7 +78,7 @@ function showRows(rows) {
     head.innerHTML =
       `<span>${kst(r.created_at)}</span>` +
       (r.who === "admin" ? `<span class="chip">내 시험</span>` : "") +
-      (r.has_image ? `<span class="chip">사진</span>` : "") +
+      (r.has_image ? `<span class="chip">사진${r.has_image > 1 ? ` ${r.has_image}장` : ""}</span>` : "") +
       (STATUS[r.status] ? `<span class="bad">${STATUS[r.status]}</span>` : "");
     el.append(head);
 
@@ -119,7 +119,7 @@ async function open() {
     document.getElementById("page").hidden = false;
     const s = summary;
     document.getElementById("summary").textContent =
-      `오늘 학생 질문 ${s.todayStudent} / ${s.limit} · 오늘 ${usd(s.todayCost)} · 이번 달 ${usd(s.monthCost)}`;
+      `오늘 학생 질문 ${s.todayStudent}${s.limit ? ` / ${s.limit}` : "개"} · 오늘 ${usd(s.todayCost)} · 이번 달 ${usd(s.monthCost)}`;
     list.innerHTML = "";
     showRows(rows);
     if (!rows.length) list.textContent = "아직 질문이 없어요.";

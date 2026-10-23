@@ -11,6 +11,7 @@ const DEFAULT_MODEL = "claude-opus-5-5";
 const DEFAULT_EFFORT = "high";
 const MAX_TURNS = 40;
 const MAX_IMAGE_BASE64 = 7_000_000; // 사진 한 장 약 5MB
+const MAX_BLOCKS = 6; // 한 번에 사진 4장 + 글, 복원된 대화의 사진 표시 글까지
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
 export async function onRequestPost(context) {
@@ -31,8 +32,9 @@ export async function onRequestPost(context) {
 
   const table = questionsTable(env);
   const day = koreaDay();
-  const limit = Number(env.DAILY_LIMIT || 30);
-  if (table && who === "student" && (await table.countStudentToday(day)) >= limit) {
+  // DAILY_LIMIT 를 넣었을 때만 학생의 하루 질문 수를 제한한다(지금은 넣지 않아 제한 없음)
+  const limit = Number(env.DAILY_LIMIT || 0);
+  if (table && who === "student" && limit > 0 && (await table.countStudentToday(day)) >= limit) {
     return json({ error: `오늘 질문은 여기까지예요. 하루에 ${limit}개까지 물을 수 있어요.`, code: "limit" }, 429);
   }
 
@@ -43,7 +45,7 @@ export async function onRequestPost(context) {
         conversation,
         who,
         question: last.filter((b) => b.type === "text").map((b) => b.text).join("\n"),
-        has_image: last.some((b) => b.type === "image") ? 1 : 0,
+        has_image: last.filter((b) => b.type === "image").length,
       })
     : null;
 
@@ -51,12 +53,24 @@ export async function onRequestPost(context) {
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
-  const send = (obj) => writer.write(encoder.encode(JSON.stringify(obj) + "\n"));
+  // 학생이 "멈추기"를 누르거나 창을 닫으면 쓰기가 실패한다. 그때는 Claude 쪽 생성도 끊는다.
+  let gone = false;
+  const send = async (obj) => {
+    try {
+      await writer.write(encoder.encode(JSON.stringify(obj) + "\n"));
+    } catch (err) {
+      gone = true;
+      throw err;
+    }
+  };
 
   const task = (async () => {
     let answer = "";
+    let stream = null;
+    let started = null; // message_start 에 오는 모델 이름과 입력 토큰
+    let saved = false;
     try {
-      const stream = client.beta.messages.stream({
+      stream = client.beta.messages.stream({
         model: env.MODEL || DEFAULT_MODEL,
         max_tokens: 64000,
         output_config: { effort: env.EFFORT || DEFAULT_EFFORT },
@@ -69,7 +83,9 @@ export async function onRequestPost(context) {
       });
 
       for await (const event of stream) {
-        if (event.type === "content_block_start" && event.content_block.type === "thinking" && !answer) {
+        if (event.type === "message_start") {
+          started = event.message;
+        } else if (event.type === "content_block_start" && event.content_block.type === "thinking" && !answer) {
           await send({ t: "thinking" });
         } else if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
           answer += event.delta.text;
@@ -79,15 +95,8 @@ export async function onRequestPost(context) {
 
       const final = await stream.finalMessage();
       const cost = costUsd(final.model, final.usage);
-      let status = "done";
-      if (final.stop_reason === "refusal") {
-        status = "refused";
-        await send({ t: "error", message: "이 질문에는 답할 수 없어요." });
-      } else if (final.stop_reason === "max_tokens") {
-        status = "cut";
-        await send({ t: "error", message: "답이 너무 길어져서 중간에 끊겼어요." });
-      }
-      await send({ t: "done", model: final.model, usage: final.usage, cost, who });
+      const status = final.stop_reason === "refusal" ? "refused" : final.stop_reason === "max_tokens" ? "cut" : "done";
+      // 기록을 먼저 남긴다. 그 뒤에 학생이 창을 닫아도 다 받은 답으로 남는다.
       if (rowId) {
         await table.update(rowId, {
           answer,
@@ -100,7 +109,31 @@ export async function onRequestPost(context) {
           status,
         });
       }
+      saved = true;
+      if (status === "refused") await send({ t: "error", message: "이 질문에는 답할 수 없어요." });
+      if (status === "cut") await send({ t: "error", message: "답이 너무 길어져서 중간에 끊겼어요." });
+      await send({ t: "done", model: final.model, usage: final.usage, cost, who });
     } catch (err) {
+      if (saved) return;
+      if (gone) {
+        // 멈춘 경우: 생성을 끊고, 거기까지의 답과 입력 쪽 토큰만 남긴다(출력 토큰은 끝나야 알 수 있다)
+        stream?.abort();
+        if (rowId) {
+          const u = started?.usage || {};
+          await table
+            .update(rowId, {
+              answer,
+              model: started?.model || null,
+              input_tokens: u.input_tokens ?? null,
+              cache_read_tokens: u.cache_read_input_tokens ?? null,
+              cache_write_tokens: u.cache_creation_input_tokens ?? null,
+              cost_usd: started ? costUsd(started.model, { ...u, output_tokens: 0 }) : null,
+              status: "stopped",
+            })
+            .catch(() => {});
+        }
+        return;
+      }
       const message = describeError(err);
       await send({ t: "error", message }).catch(() => {});
       if (rowId) await table.update(rowId, { answer: answer || message, status: "error" }).catch(() => {});
@@ -132,7 +165,7 @@ function cleanMessages(input) {
     }
 
     const blocks = typeof m.content === "string" ? [{ type: "text", text: m.content }] : m.content;
-    if (!Array.isArray(blocks) || blocks.length === 0 || blocks.length > 5) return null;
+    if (!Array.isArray(blocks) || blocks.length === 0 || blocks.length > MAX_BLOCKS) return null;
     const content = [];
     for (const b of blocks) {
       if (b?.type === "text" && typeof b.text === "string" && b.text.trim()) {
