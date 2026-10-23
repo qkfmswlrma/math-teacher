@@ -1,0 +1,10 @@
+# 이 파일을 복사해 이름을 .dev.vars 로 바꾸고 값을 넣으면 내 컴퓨터에서 진짜 답이 나온다.
+# .dev.vars 는 깃에 올라가지 않는다. 배포한 사이트의 값은 Cloudflare 대시보드의 비밀값에 따로 넣는다.
+ANTHROPIC_API_KEY=여기에_키
+# 학생이 넣을 입장 코드와, 기록 페이지(/records.html)를 여는 관리자 코드
+ACCESS_CODE=student-local
+ADMIN_CODE=admin-local
+# 모델을 바꾸려면 아래 줄의 # 을 지운다. 비워 두면 claude-opus-5-5
+# MODEL=claude-sonnet-5-5
+# 생각의 깊이: low, medium, high, xhigh, max. 비워 두면 high
+# EFFORT=high

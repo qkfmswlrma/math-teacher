@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>수학 선생님</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="/style.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" onload="rerenderAll()"></script>
+<style>
+  .msg { margin: 0 0 28px; }
+  .msg.user { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  .msg.user .bubble {
+    background: var(--user-bg);
+    border-radius: 18px 18px 4px 18px;
+    padding: 10px 14px;
+    max-width: 85%;
+    font-size: 16px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .msg.user img {
+    max-width: min(320px, 85%);
+    max-height: 320px;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    display: block;
+  }
+  .status { color: var(--muted); font-size: 15px; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+  .note { color: var(--err); font-size: 14px; margin-top: 6px; }
+  footer {
+    position: sticky;
+    bottom: 0;
+    background: linear-gradient(to top, var(--bg) 70%, transparent);
+    padding: 8px 0 calc(12px + env(safe-area-inset-bottom));
+  }
+  #composer { max-width: 720px; margin: 0 auto; padding: 0 16px; }
+  .attach { display: inline-flex; position: relative; margin: 0 0 8px; }
+  .attach img { height: 72px; border-radius: 10px; border: 1px solid var(--line); display: block; }
+  .attach button {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: none;
+    background: var(--fg);
+    color: var(--bg);
+    font-size: 15px;
+    line-height: 24px;
+    cursor: pointer;
+    padding: 0;
+  }
+  .row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    padding: 6px;
+  }
+  .icon-btn, .send {
+    flex: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    border: none;
+  }
+  .icon-btn { background: transparent; color: var(--muted); }
+  .send { background: var(--accent); color: var(--accent-fg); }
+  .send:disabled { opacity: 0.35; cursor: default; }
+  textarea {
+    flex: 1;
+    border: none;
+    outline: none;
+    resize: none;
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    font-size: 16px;
+    line-height: 1.5;
+    padding: 9px 4px;
+    max-height: 180px;
+  }
+  textarea::placeholder { color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>수학 선생님</h1>
+    <button id="reset" class="ghost" type="button" hidden>새 질문</button>
+  </div>
+</header>
+
+<section id="gate" class="gate" hidden>
+  <form id="gate-form">
+    <label for="code">입장 코드</label>
+    <input id="code" type="password" autocomplete="off" required>
+    <button type="submit">들어가기</button>
+    <div id="gate-error" class="error-line" hidden></div>
+  </form>
+</section>
+
+<main id="log" aria-live="polite" hidden></main>
+
+<footer id="footer" hidden>
+  <form id="composer">
+    <div id="error" class="error-line" hidden></div>
+    <div id="attach" class="attach" hidden>
+      <img id="attach-img" alt="올린 사진">
+      <button id="attach-remove" type="button" aria-label="사진 빼기">×</button>
+    </div>
+    <div class="row">
+      <label class="icon-btn" for="photo" title="사진 올리기">
+        <span class="sr">사진 올리기</span>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+      </label>
+      <input id="photo" class="sr" type="file" accept="image/*">
+      <textarea id="input" rows="1" placeholder="문제나 사진을 보내 주세요"></textarea>
+      <button id="send" class="send" type="submit" aria-label="보내기" disabled>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      </button>
+    </div>
+  </form>
+</footer>
+
+<script src="/render.js"></script>
+<script>
+const CODE_KEY = "mt-code";
+const CHAT_KEY = "mt-chat";
+const log = document.getElementById("log");
+const form = document.getElementById("composer");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+const photoInput = document.getElementById("photo");
+const attach = document.getElementById("attach");
+const attachImg = document.getElementById("attach-img");
+const errorLine = document.getElementById("error");
+const resetBtn = document.getElementById("reset");
+const coarse = matchMedia("(pointer: coarse)").matches;
+const isLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
+
+let code = store.get(CODE_KEY);
+let who = null;
+let conversation = null;
+// 한 대화의 주고받은 말. 사진은 이 창에서만 들고 있고, 저장할 때는 "사진이 있었다"만 남긴다.
+let turns = [];
+let photo = null;
+let busy = false;
+
+// ---------- 입장 ----------
+async function enter() {
+  try {
+    const res = await fetch("/api/check", { headers: { "x-access-code": code || "" } });
+    if (!res.ok) throw new Error(res.status === 401 ? "bad_code" : `서버 오류(${res.status})예요.`);
+    who = (await res.json()).who;
+  } catch (err) {
+    store.remove(CODE_KEY);
+    showGate(err.message === "bad_code" ? (code ? "코드가 맞지 않아요." : "") : err.message);
+    return;
+  }
+  document.getElementById("gate").hidden = true;
+  log.hidden = false;
+  document.getElementById("footer").hidden = false;
+  restore();
+  input.focus();
+}
+
+function showGate(message) {
+  log.hidden = true;
+  document.getElementById("footer").hidden = true;
+  resetBtn.hidden = true;
+  document.getElementById("gate").hidden = false;
+  const e = document.getElementById("gate-error");
+  e.textContent = message || "";
+  e.hidden = !message;
+  document.getElementById("code").focus();
+}
+
+document.getElementById("gate-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  code = document.getElementById("code").value.trim();
+  store.set(CODE_KEY, code);
+  enter();
+});
+
+// ---------- 대화 저장·복원 ----------
+function save() {
+  store.set(CHAT_KEY, JSON.stringify({
+    conversation,
+    turns: turns.map((t) => ({ role: t.role, text: t.text, hadImage: !!(t.image || t.hadImage) })),
+  }));
+}
+
+function restore() {
+  let saved = null;
+  try { saved = JSON.parse(store.get(CHAT_KEY) || "null"); } catch {}
+  conversation = saved?.conversation || newId();
+  turns = Array.isArray(saved?.turns) ? saved.turns : [];
+  log.innerHTML = "";
+  for (const t of turns) {
+    if (t.role === "user") addUser(t.text, null, t.hadImage);
+    else addAnswer().set(t.text, true);
+  }
+  resetBtn.hidden = !turns.length;
+  scrollDown(true);
+}
+
+function newId() {
+  return (crypto.randomUUID?.() || String(Date.now()) + Math.random().toString(16).slice(2)).replace(/[^\w-]/g, "");
+}
+
+// 서버로 보낼 대화. 복원된 대화의 사진은 남아 있지 않으니 글로 표시해 둔다.
+function toMessages() {
+  return turns.map((t) => {
+    if (t.role === "assistant") return { role: "assistant", content: t.text };
+    const content = [];
+    if (t.image) content.push({ type: "image", source: { type: "base64", media_type: t.image.type, data: t.image.data } });
+    else if (t.hadImage) content.push({ type: "text", text: "(앞에서 사진으로 보낸 문제)" });
+    if (t.text) content.push({ type: "text", text: t.text });
+    return { role: "user", content };
+  });
+}
+
+resetBtn.addEventListener("click", () => {
+  if (busy) return;
+  turns = [];
+  conversation = newId();
+  store.remove(CHAT_KEY);
+  log.innerHTML = "";
+  resetBtn.hidden = true;
+  showError("");
+  input.focus();
+});
+
+// ---------- 입력 ----------
+function refreshSend() {
+  sendBtn.disabled = busy || (!input.value.trim() && !photo);
+}
+function autosize() {
+  input.style.height = "auto";
+  input.style.height = Math.min(input.scrollHeight, 180) + "px";
+}
+input.addEventListener("input", () => { autosize(); refreshSend(); });
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing && !coarse) {
+    e.preventDefault();
+    form.requestSubmit();
+  }
+});
+
+photoInput.addEventListener("change", async () => {
+  const file = photoInput.files[0];
+  photoInput.value = "";
+  if (!file) return;
+  try {
+    setPhoto(await shrink(file));
+  } catch {
+    showError("사진을 읽지 못했어요. 다른 사진으로 해 주세요.");
+  }
+});
+document.getElementById("attach-remove").addEventListener("click", () => setPhoto(null));
+
+function setPhoto(p) {
+  photo = p;
+  attach.hidden = !p;
+  if (p) attachImg.src = p.dataUrl;
+  refreshSend();
+}
+
+// 휴대폰 사진은 크니까 긴 변 1600px 로 줄여서 보낸다.
+async function shrink(file) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+  return { dataUrl, data: dataUrl.split(",")[1], type: "image/jpeg" };
+}
+
+function showError(text) {
+  errorLine.textContent = text;
+  errorLine.hidden = !text;
+}
+
+// ---------- 보내기 ----------
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const text = input.value.trim();
+  if (busy || (!text && !photo)) return;
+
+  const turn = { role: "user", text, image: photo };
+  turns.push(turn);
+  const userEl = addUser(text, photo?.dataUrl, false);
+  const ai = addAnswer();
+  input.value = "";
+  autosize();
+  setPhoto(null);
+  showError("");
+  busy = true;
+  refreshSend();
+  resetBtn.hidden = false;
+  scrollDown(true);
+
+  const started = Date.now();
+  const tick = setInterval(() => {
+    ai.statusText.textContent = `풀어 보는 중 · ${Math.round((Date.now() - started) / 1000)}초`;
+  }, 1000);
+
+  let answer = "";
+  let note = "";
+  try {
+    const res = await fetch("/api/ask", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-access-code": code },
+      body: JSON.stringify({ conversation, messages: toMessages() }),
+    });
+    if (res.status === 401) throw Object.assign(new Error("코드가 바뀌었어요. 다시 넣어 주세요."), { gate: true });
+    if (!res.ok || !res.body) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `서버 오류(${res.status})예요.`);
+    }
+    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += value;
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        const ev = JSON.parse(line);
+        if (ev.t === "text") {
+          answer += ev.v;
+          ai.status.hidden = true;
+          ai.set(answer);
+        } else if (ev.t === "error") {
+          note = ev.message;
+        } else if (ev.t === "done") {
+          showMeta(ai.meta, ev, started);
+        }
+      }
+    }
+    if (!answer) throw new Error(note || "답이 비어 있어요. 다시 보내 주세요.");
+    turns.push({ role: "assistant", text: answer });
+    save();
+    if (note) ai.note(note);
+  } catch (err) {
+    turns.pop();
+    userEl.remove();
+    ai.el.remove();
+    input.value = turn.text;
+    autosize();
+    setPhoto(turn.image);
+    if (!turns.length) resetBtn.hidden = true;
+    if (err.gate) {
+      store.remove(CODE_KEY);
+      code = null;
+      showGate(err.message);
+    } else {
+      showError(err.message || "연결이 끊겼어요. 다시 보내 주세요.");
+    }
+  } finally {
+    clearInterval(tick);
+    ai.status.hidden = true;
+    busy = false;
+    refreshSend();
+  }
+});
+
+function addUser(text, img, hadImage) {
+  const el = document.createElement("div");
+  el.className = "msg user";
+  if (img) {
+    const im = document.createElement("img");
+    im.src = img;
+    im.alt = "보낸 문제 사진";
+    el.append(im);
+  } else if (hadImage) {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.textContent = "사진";
+    el.append(chip);
+  }
+  if (text) {
+    const b = document.createElement("div");
+    b.className = "bubble";
+    b.textContent = text;
+    el.append(b);
+  }
+  log.append(el);
+  return el;
+}
+
+function addAnswer() {
+  const el = document.createElement("div");
+  el.className = "msg ai";
+  el.innerHTML = `<div class="status"><span class="dot"></span><span>풀어 보는 중</span></div><div class="answer"></div><div class="meta"></div>`;
+  log.append(el);
+  const answer = el.querySelector(".answer");
+  let pending = null;
+  let latest = "";
+  const ai = {
+    el,
+    status: el.querySelector(".status"),
+    statusText: el.querySelector(".status span:last-child"),
+    meta: el.querySelector(".meta"),
+    set(text, now) {
+      latest = text;
+      if (now) {
+        ai.status.hidden = true;
+        paint(answer, text);
+        return;
+      }
+      if (pending) return;
+      pending = setTimeout(() => {
+        pending = null;
+        const near = isNearBottom();
+        paint(answer, latest);
+        if (near) scrollDown();
+      }, 80);
+    },
+    note(text) {
+      const n = document.createElement("div");
+      n.className = "note";
+      n.textContent = text;
+      el.insertBefore(n, ai.meta);
+    },
+  };
+  return ai;
+}
+
+// 토큰과 비용은 관리자 코드로 들어왔거나 내 컴퓨터에서 볼 때만 보인다.
+function showMeta(el, ev, started) {
+  if (who !== "admin" && !isLocal) return;
+  const u = ev.usage || {};
+  const n = (x) => (x || 0).toLocaleString("ko-KR");
+  const secs = Math.round((Date.now() - started) / 1000);
+  el.textContent = `${ev.model} · ${secs}초 · 입력 ${n(u.input_tokens)} · 캐시 읽기 ${n(u.cache_read_input_tokens)} · 캐시 쓰기 ${n(u.cache_creation_input_tokens)} · 출력 ${n(u.output_tokens)} 토큰 · 약 $${(ev.cost || 0).toFixed(3)}`;
+}
+
+function isNearBottom() {
+  return window.innerHeight + window.scrollY >= document.body.scrollHeight - 160;
+}
+function scrollDown(force) {
+  if (force || isNearBottom()) window.scrollTo({ top: document.body.scrollHeight });
+}
+
+refreshSend();
+if (code) enter(); else showGate("");
+</script>
+</body>
+</html>

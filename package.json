@@ -1,0 +1,15 @@
+{
+  "name": "math-teacher",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node tools/build-prompt.mjs",
+    "dev": "node tools/dev.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.1.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.152.0"
+  }
+}
