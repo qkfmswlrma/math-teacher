@@ -26,6 +26,9 @@ function renderAnswer(src) {
     const line = raw.trim();
     const only = line.match(/^\u0000(\d+)\u0000$/);
     if (!line) { flushAll(); continue; }
+    // 지침은 제목을 쓰지 말라고 하지만, 혹시 "## 계산" 같은 줄이 오면 # 을 떼고 보통 문단으로 둔다
+    const heading = line.match(/^#{1,6}\s+(.*)$/);
+    if (heading) { flushAll(); out.push(`<div class="p">${heading[1]}</div>`); continue; }
     if (only && maths[+only[1]].display) { flushAll(); out.push(`<div class="math-block">${line}</div>`); continue; }
     if (line.startsWith("&gt;")) { flushPara(); flushList(); quote.push(line.replace(/^&gt;\s?/, "")); continue; }
     const bullet = line.match(/^[-*•]\s+(.*)$/);
