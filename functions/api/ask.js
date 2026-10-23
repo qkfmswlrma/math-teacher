@@ -1,6 +1,7 @@
 // POST /api/ask — 학생의 대화를 받아 Claude 의 답을 한 줄씩(NDJSON) 흘려보낸다.
 // Cloudflare Pages Functions 형식. API 키는 비밀값 ANTHROPIC_API_KEY 에만 둔다.
-import Anthropic from "@anthropic-ai/sdk";
+// Claude SDK 를 파일 하나로 묶어 둔 것(tools/build.mjs). Cloudflare 가 빌드 없이 올릴 수 있게.
+import Anthropic from "../../lib/vendor/anthropic.js";
 import { SYSTEM_PROMPT } from "../../lib/prompt.js";
 import { whoIs, json, koreaDay } from "../../lib/auth.js";
 import { questionsTable } from "../../lib/db.js";
