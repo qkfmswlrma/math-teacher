@@ -163,7 +163,6 @@ const attachImg = document.getElementById("attach-img");
 const errorLine = document.getElementById("error");
 const resetBtn = document.getElementById("reset");
 const coarse = matchMedia("(pointer: coarse)").matches;
-const isLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
 
 let code = store.get(CODE_KEY);
 let who = null;
@@ -215,7 +214,7 @@ document.getElementById("gate-form").addEventListener("submit", (e) => {
 function save() {
   store.set(CHAT_KEY, JSON.stringify({
     conversation,
-    turns: turns.map((t) => ({ role: t.role, text: t.text, hadImage: !!(t.image || t.hadImage) })),
+    turns: turns.map((t) => ({ role: t.role, text: t.text, hadImage: !!(t.image || t.hadImage), meta: t.meta })),
   }));
 }
 
@@ -226,8 +225,13 @@ function restore() {
   turns = Array.isArray(saved?.turns) ? saved.turns : [];
   log.innerHTML = "";
   for (const t of turns) {
-    if (t.role === "user") addUser(t.text, null, t.hadImage);
-    else addAnswer().set(t.text, true);
+    if (t.role === "user") {
+      addUser(t.text, null, t.hadImage);
+    } else {
+      const ai = addAnswer();
+      ai.set(t.text, true);
+      if (t.meta) ai.meta.textContent = t.meta;
+    }
   }
   resetBtn.hidden = !turns.length;
   scrollDown(true);
@@ -341,6 +345,7 @@ form.addEventListener("submit", async (e) => {
 
   let answer = "";
   let note = "";
+  let meta = "";
   try {
     const res = await fetch("/api/ask", {
       method: "POST",
@@ -371,12 +376,13 @@ form.addEventListener("submit", async (e) => {
         } else if (ev.t === "error") {
           note = ev.message;
         } else if (ev.t === "done") {
-          showMeta(ai.meta, ev, started);
+          meta = metaText(ev, started);
+          ai.meta.textContent = meta;
         }
       }
     }
     if (!answer) throw new Error(note || "답이 비어 있어요. 다시 보내 주세요.");
-    turns.push({ role: "assistant", text: answer });
+    turns.push({ role: "assistant", text: answer, meta });
     save();
     if (note) ai.note(note);
   } catch (err) {
@@ -464,13 +470,12 @@ function addAnswer() {
   return ai;
 }
 
-// 토큰과 비용은 관리자 코드로 들어왔거나 내 컴퓨터에서 볼 때만 보인다.
-function showMeta(el, ev, started) {
-  if (who !== "admin" && !isLocal) return;
+// 답 아래에 붙는 토큰·비용 줄. 대화를 저장할 때 같이 남겨 새로고침 뒤에도 보인다.
+function metaText(ev, started) {
   const u = ev.usage || {};
   const n = (x) => (x || 0).toLocaleString("ko-KR");
   const secs = Math.round((Date.now() - started) / 1000);
-  el.textContent = `${ev.model} · ${secs}초 · 입력 ${n(u.input_tokens)} · 캐시 읽기 ${n(u.cache_read_input_tokens)} · 캐시 쓰기 ${n(u.cache_creation_input_tokens)} · 출력 ${n(u.output_tokens)} 토큰 · 약 $${(ev.cost || 0).toFixed(3)}`;
+  return `${ev.model} · ${secs}초 · 입력 ${n(u.input_tokens)} · 캐시 읽기 ${n(u.cache_read_input_tokens)} · 캐시 쓰기 ${n(u.cache_creation_input_tokens)} · 출력 ${n(u.output_tokens)} 토큰 · 약 $${(ev.cost || 0).toFixed(3)}`;
 }
 
 function isNearBottom() {

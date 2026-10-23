@@ -100,6 +100,14 @@ function showRows(rows) {
     d.addEventListener("toggle", () => { if (d.open && !a.innerHTML) paint(a, r.answer); });
     el.append(d);
 
+    if (r.model) {
+      const m = document.createElement("div");
+      m.className = "meta";
+      const n = (x) => (x || 0).toLocaleString("ko-KR");
+      m.textContent = `${r.model} · 입력 ${n(r.input_tokens)} · 캐시 읽기 ${n(r.cache_read_tokens)} · 캐시 쓰기 ${n(r.cache_write_tokens)} · 출력 ${n(r.output_tokens)} 토큰 · 약 $${(Number(r.cost_usd) || 0).toFixed(3)}`;
+      el.append(m);
+    }
+
     list.append(el);
     oldest = r.id;
   }

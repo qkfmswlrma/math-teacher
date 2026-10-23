@@ -1,5 +1,5 @@
 // GET /api/records — 질문 기록.
-// 관리자 코드: 모든 질문과 날짜별 비용. 학생 코드: 학생이 한 질문과 답만(비용·토큰 없이).
+// 관리자 코드: 모든 질문과 날짜별 비용. 학생 코드: 학생이 한 질문과 답, 질문마다의 토큰·비용.
 import { whoIs, json, koreaDay } from "../../lib/auth.js";
 import { questionsTable } from "../../lib/db.js";
 
