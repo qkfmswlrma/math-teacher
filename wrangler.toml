@@ -2,12 +2,11 @@ name = "math-teacher"
 pages_build_output_dir = "public"
 compatibility_date = "2026-10-01"
 
-# 질문 기록과 하루 질문 수를 세는 DB.
-# 배포할 때 Cloudflare 에서 만든 D1 의 진짜 id 로 바꾼다.
+# 질문 기록과 하루 질문 수를 세는 DB. 표는 서버 함수가 처음 쓸 때 만든다.
 [[d1_databases]]
 binding = "DB"
 database_name = "math-teacher"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "67c8f7e5-be4e-496a-9f4d-fa3dde9a2f3d"
 
 # 비밀이 아닌 설정만 여기 둔다.
 # 비밀값(ANTHROPIC_API_KEY, ACCESS_CODE, ADMIN_CODE)은 Cloudflare 대시보드의 비밀값에,
